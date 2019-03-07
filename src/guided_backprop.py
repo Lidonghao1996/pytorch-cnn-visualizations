@@ -55,6 +55,14 @@ class GuidedBackprop():
             """
             self.forward_relu_outputs.append(ten_out)
 
+        def relu_forward_hook_for_classification(module,ten_in,ten_out):
+            # Get last forward output
+            corresponding_forward_output = self.forward_relu_outputs[-1]
+            corresponding_forward_output[corresponding_forward_output > 0] = 1
+            modified_grad_out = corresponding_forward_output * torch.clamp(ten_in[0], min=0.0)
+            del self.forward_relu_outputs[-1]  # Remove last forward output
+            return (modified_grad_out,)
+
         # Loop through layers, hook up ReLUs
         for pos, module in self.model.features._modules.items():
             if isinstance(module, ReLU):
@@ -76,16 +84,54 @@ class GuidedBackprop():
         gradients_as_arr = self.gradients.data.numpy()[0]
         return gradients_as_arr
 
+    def generate_random_gradients(self, input_image, target_class):
+        # Forward pass
+        model_output = self.model(input_image)
+        # Zero gradients
+        self.model.zero_grad()
+        # Target for backprop
+        random_output=torch.randn(1, model_output.size()[-1])
+        # Backward pass
+        model_output.backward(gradient=random_output)
+        # Convert Pytorch variable to numpy array
+        # [0] to get rid of the first channel (1,3,224,224)
+        gradients_as_arr = self.gradients.data.numpy()[0]
+        return gradients_as_arr
+
 
 if __name__ == '__main__':
     target_example = 0  # Snake
     (original_image, prep_img, target_class, file_name_to_export, pretrained_model) =\
         get_example_params(target_example)
-
+    print(target_class)
+    target_class=1
     # Guided backprop
     GBP = GuidedBackprop(pretrained_model)
     # Get gradients
-    guided_grads = GBP.generate_gradients(prep_img, target_class)
+    guided_grads = GBP.generate_random_gradients(prep_img, target_class)
+    # Save colored gradients
+    save_gradient_images(guided_grads, file_name_to_export + '_Guided_BP_color')
+    # Convert to grayscale
+    grayscale_guided_grads = convert_to_grayscale(guided_grads)
+    # Save grayscale gradients
+    save_gradient_images(grayscale_guided_grads, file_name_to_export + '_Guided_BP_gray')
+    # Positive and negative saliency maps
+    pos_sal, neg_sal = get_positive_negative_saliency(guided_grads)
+    save_gradient_images(pos_sal, file_name_to_export + '_pos_sal')
+    save_gradient_images(neg_sal, file_name_to_export + '_neg_sal')
+    print('Guided backprop completed')
+
+
+if __name__ == '__main__':
+    target_example = 0  # Snake
+    (original_image, prep_img, target_class, file_name_to_export, pretrained_model) =\
+        get_example_params(target_example)
+    print(target_class)
+    target_class=1
+    # Guided backprop
+    GBP = GuidedBackprop(pretrained_model)
+    # Get gradients
+    guided_grads = GBP.generate_random_gradients(prep_img, target_class)
     # Save colored gradients
     save_gradient_images(guided_grads, file_name_to_export + '_Guided_BP_color')
     # Convert to grayscale
